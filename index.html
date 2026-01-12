@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2026 SRT D조 출석부</title>
+    <script src="https://www.gstatic.com/firebasejs/9.x.x/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.x.x/firebase-database-compat.js"></script>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background: #f4f7f6; }
+        .container { max-width: 1000px; margin: auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1, h2 { text-align: center; color: #2c3e50; }
+        
+        /* 순위 섹션 */
+        .ranking-section { background: #eef2f3; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+        .ranking-list { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; list-style: none; padding: 0; }
+        .ranking-item { background: white; padding: 5px 10px; border-radius: 4px; border-left: 4px solid #3498db; font-size: 0.9em; }
+
+        /* 출석 테이블 */
+        .table-wrapper { overflow-x: auto; margin-top: 20px; }
+        table { width: 100%; border-collapse: collapse; min-width: 600px; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: center; }
+        th { background: #3498db; color: white; position: sticky; top: 0; }
+        tr:nth-child(even) { background: #f9f9f9; }
+        .checkbox-cell { cursor: pointer; }
+        
+        select { padding: 10px; width: 200px; margin-bottom: 10px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🏃‍♂️ SRT D조 출석체크 (2026)</h1>
+
+    <div class="ranking-section">
+        <h2 id="ranking-title">1월 실시간 순위 (TOP 10)</h2>
+        <ul id="ranking-list" class="ranking-list">
+            </ul>
+    </div>
+
+    <div style="text-align: right;">
+        <select id="month-select" onchange="renderTable()">
+            <option value="0">1월</option><option value="1">2월</option>
+            <option value="2">3월</option><option value="3">4월</option>
+            <option value="4">5월</option><option value="5">6월</option>
+            <option value="6">7월</option>
+        </select>
+    </div>
+
+    <div class="table-wrapper">
+        <table id="attendance-table">
+            <thead><tr id="table-header"></tr></thead>
+            <tbody id="table-body"></tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    // 1. Firebase 설정 (본인의 키로 교체 필요)
+    const firebaseConfig = {
+  apiKey: "AIzaSyBX4hHNwF-TGwdgJpM12cMY2TcHwTU0j9w",
+  authDomain: "dattendance-bc4a9.firebaseapp.com",
+  databaseURL: "https://dattendance-bc4a9-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "dattendance-bc4a9",
+  storageBucket: "dattendance-bc4a9.firebasestorage.app",
+  messagingSenderId: "290320727452",
+  appId: "1:290320727452:web:1e4896b79ce5af4fea1c59"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    // 2. 명단 데이터
+    const members = ["강동현", "강동훈", "송채한", "김미화", "김재산", "김찬석", "김한나", "류지찬", "박성환", "박종봉", "소병득", "서정화", "신영섭", "안지훈", "오한천", "이승준", "이용구", "정덕수", "주효석", "서인수", "박창선", "김병식"].sort();
+
+    // 3. 특정 월의 수요일, 일요일 날짜 구하기 (2026년)
+    function getMeetingDates(month) {
+        let dates = [];
+        let date = new Date(2026, month, 1);
+        while (date.getMonth() === month) {
+            if (date.getDay() === 0 || date.getDay() === 3) { // 0:일, 3:수
+                dates.push(new Date(date).toISOString().split('T')[0]);
+            }
+            date.setDate(date.getDate() + 1);
+        }
+        return dates;
+    }
+
+    // 4. 출석 체크 저장/삭제
+    function toggleAttendance(name, date, isChecked) {
+        const ref = db.ref(`srt_attendance/${date}/${name}`);
+        if (isChecked) ref.set(true);
+        else ref.remove();
+    }
+
+    // 5. 테이블 렌더링 및 데이터 바인딩
+    function renderTable() {
+        const month = parseInt(document.getElementById('month-select').value);
+        const dates = getMeetingDates(month);
+        const header = document.getElementById('table-header');
+        const body = document.getElementById('table-body');
+        
+        document.getElementById('ranking-title').innerText = `${month + 1}월 실시간 순위 (TOP 10)`;
+
+        // 헤더 생성
+        header.innerHTML = '<th>이름</th>' + dates.map(d => `<th>${d.slice(5)}</th>`).join('');
+
+        // 바디 생성
+        body.innerHTML = '';
+        members.forEach(name => {
+            let row = `<tr><td><b>${name}</b></td>`;
+            dates.forEach(date => {
+                row += `<td><input type="checkbox" id="${name}-${date}" onchange="toggleAttendance('${name}', '${date}', this.checked)"></td>`;
+            });
+            row += `</tr>`;
+            body.innerHTML += row;
+        });
+
+        // 실시간 데이터 동기화 및 순위 계산
+        db.ref('srt_attendance').on('value', (snapshot) => {
+            const data = snapshot.val() || {};
+            const monthlyCounts = {};
+
+            // 데이터 반영 및 이번 달 출석수 계산
+            members.forEach(name => {
+                let count = 0;
+                dates.forEach(date => {
+                    const isAttended = data[date] && data[date][name];
+                    const cb = document.getElementById(`${name}-${date}`);
+                    if(cb) cb.checked = !!isAttended;
+                    if(isAttended) count++;
+                });
+                monthlyCounts[name] = count;
+            });
+
+            updateRanking(monthlyCounts);
+        });
+    }
+
+    // 6. 순위 업데이트
+    function updateRanking(counts) {
+        const sorted = Object.entries(counts)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 10);
+
+        const list = document.getElementById('ranking-list');
+        list.innerHTML = sorted.map((item, index) => 
+            `<li class="ranking-item"><b>${index + 1}위</b> ${item[0]} (${item[1]}회)</li>`
+        ).join('');
+    }
+
+    // 초기 실행
+    renderTable();
+</script>
+
+</body>
+</html>
